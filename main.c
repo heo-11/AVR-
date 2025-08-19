@@ -2,105 +2,126 @@
 #include <avr/interrupt.h>
 #include <util/delay.h>
 
-// ÊıÂë¹ÜÒı½Å¶¨Òå - ¸ù¾İÊµ¼ÊµçÂ·ĞŞ¸Ä
-#define SEG_PORT PORTB
-#define SEG_DDR  DDRB
-#define DIG_PORT PORTA
-#define DIG_DDR  DDRA
+// æ•°ç ç®¡å¼•è„šå®šä¹‰ - æ ¹æ®å®é™…ç”µè·¯è¿æ¥ä¿®æ”¹
+#define SEG_PORT PORTD
+#define SEG_DDR  DDRD
+#define DIG_PORT PORTB
+#define DIG_DDR  DDRB
 
-// ¹²ÑôÊıÂë¹Ü¶ÎÂë±í(0-9)
+// ä½é€‰å¼•è„šå®šä¹‰
+#define DIGIT_TEN  PB0  // åä½
+#define DIGIT_ONE  PB1  // ä¸ªä½
+
+// å…±é˜³æ•°ç ç®¡æ®µç è¡¨(0-9)
 const uint8_t seg_table[] = {
-	0xC0, // 0
-	0xF9, // 1
-	0xA4, // 2
-	0xB0, // 3
-	0x99, // 4
-	0x92, // 5
-	0x82, // 6
-	0xF8, // 7
-	0x80, // 8
-	0x90  // 9
+    0xC0, // 0 - a,b,c,d,e,f
+    0xF9, // 1 - b,c
+    0xA4, // 2 - a,b,d,e,g
+    0xB0, // 3 - a,b,c,d,g
+    0x99, // 4 - b,c,f,g
+    0x92, // 5 - a,c,d,f,g
+    0x82, // 6 - a,c,d,e,f,g
+    0xF8, // 7 - a,b,c
+    0x80, // 8 - a,b,c,d,e,f,g
+    0x90  // 9 - a,b,c,d,f,g
 };
 
-volatile uint8_t seconds = 30; // ³õÊ¼µ¹¼ÆÊ±Ê±¼ä30Ãë
-volatile uint8_t digit_pos = 0; // µ±Ç°ÏÔÊ¾Î»
-volatile uint8_t timer_cnt = 0; // ¶¨Ê±Æ÷¼ÆÊıÆ÷
+volatile uint8_t seconds = 30;  // åˆå§‹å€’è®¡æ—¶æ—¶é—´30ç§’
+volatile uint8_t digit_pos = 0; // å½“å‰æ˜¾ç¤ºä½
+volatile uint16_t ms_counter = 0; // æ¯«ç§’è®¡æ•°å™¨
 
-// ÏÔÊ¾Ò»¸öÊı×ÖÔÚÖ¸¶¨Î»ÖÃ
+// æ˜¾ç¤ºä¸€ä¸ªæ•°å­—åœ¨æŒ‡å®šä½ç½®
 void display_digit(uint8_t pos, uint8_t num) {
-	// ÏÈ¹Ø±ÕËùÓĞÎ»Ñ¡
-	DIG_PORT |= (1 << PA0) | (1 << PA1);
-	
-	// Êä³ö¶ÎÂë
-	SEG_PORT = seg_table[num];
-	
-	// Ñ¡Ôñ¶ÔÓ¦µÄÎ»
-	if(pos == 0) {
-		DIG_PORT &= ~(1 << PA0); // ¿ªÆôÊ®Î»
-		} else {
-		DIG_PORT &= ~(1 << PA1); // ¿ªÆô¸öÎ»
-	}
+    // å…ˆå…³é—­æ‰€æœ‰ä½é€‰
+    DIG_PORT |= (1 << DIGIT_TEN) | (1 << DIGIT_ONE);
+    
+    // è¾“å‡ºæ®µç 
+    SEG_PORT = seg_table[num];
+    
+    // é€‰æ‹©å¯¹åº”çš„ä½
+    if(pos == 0) {
+        DIG_PORT &= ~(1 << DIGIT_TEN); // å¼€å¯åä½
+    } else {
+        DIG_PORT &= ~(1 << DIGIT_ONE); // å¼€å¯ä¸ªä½
+    }
 }
 
-// ¶¨Ê±Æ÷1±È½ÏÆ¥ÅäÖĞ¶Ï - ÓÃÓÚ1Ãë¶¨Ê±
+// å®šæ—¶å™¨1æ¯”è¾ƒåŒ¹é…Aä¸­æ–­ - ç”¨äº1mså®šæ—¶å’Œæ•°ç ç®¡æ‰«æ
 ISR(TIMER1_COMPA_vect) {
-	timer_cnt++;
-	if(timer_cnt >= 100) { // 10ms * 100 = 1Ãë
-		timer_cnt = 0;
-		if(seconds > 0) {
-			seconds--;
-		}
-	}
-}
-
-// ¶¨Ê±Æ÷0Òç³öÖĞ¶Ï - ÓÃÓÚÊıÂë¹Ü¶¯Ì¬É¨Ãè
-ISR(TIMER0_OVF_vect) {
-	uint8_t ten = seconds / 10;
-	uint8_t one = seconds % 10;
-	
-	if(digit_pos == 0) {
-		display_digit(0, ten);
-		digit_pos = 1;
-		} else {
-		display_digit(1, one);
-		digit_pos = 0;
-	}
-}
-
-void init_timer0() {
-	// ¶¨Ê±Æ÷0 - ÓÃÓÚÊıÂë¹Ü¶¯Ì¬É¨Ãè(Ô¼1msÖĞ¶ÏÒ»´Î)
-	TCCR0 = (1 << CS01); // ·ÖÆµÏµÊı8
-	TIMSK = (1 << TOIE0); // Ê¹ÄÜÒç³öÖĞ¶Ï
-	TCNT0 = 0;
+    // æ•°ç ç®¡åŠ¨æ€æ‰«æï¼ˆçº¦2msåˆ‡æ¢ä¸€æ¬¡ä½ï¼‰
+    static uint8_t scan_counter = 0;
+    scan_counter++;
+    
+    if(scan_counter >= 2) { // æ¯2msåˆ‡æ¢ä¸€æ¬¡æ˜¾ç¤ºä½
+        scan_counter = 0;
+        uint8_t ten = seconds / 10;
+        uint8_t one = seconds % 10;
+        
+        if(digit_pos == 0) {
+            display_digit(0, ten);
+            digit_pos = 1;
+        } else {
+            display_digit(1, one);
+            digit_pos = 0;
+        }
+    }
+    
+    // 1ç§’å®šæ—¶
+    ms_counter++;
+    if(ms_counter >= 1000) { // 1000ms = 1ç§’
+        ms_counter = 0;
+        if(seconds > 0) {
+            seconds--;
+        }
+    }
 }
 
 void init_timer1() {
-	// ¶¨Ê±Æ÷1 - ÓÃÓÚ1Ãë¶¨Ê±
-	TCCR1B = (1 << WGM12) | (1 << CS11) | (1 << CS10); // CTCÄ£Ê½, ·ÖÆµÏµÊı64
-	OCR1A = 156; // 10msÖĞ¶ÏÒ»´Î (16MHz/64/156 ¡Ö 10ms)
-	TIMSK |= (1 << OCIE1A); // Ê¹ÄÜ±È½ÏÆ¥ÅäÖĞ¶Ï
+    // å®šæ—¶å™¨1 - CTCæ¨¡å¼ï¼Œç”¨äº1mså®šæ—¶
+    TCCR1A = 0; // æ™®é€šæ¨¡å¼
+    TCCR1B = (1 << WGM12) | (1 << CS11); // CTCæ¨¡å¼, åˆ†é¢‘ç³»æ•°8
+    OCR1A = 1999; // 1msä¸­æ–­ (16MHz/8/2000 = 1ms)
+    TIMSK1 = (1 << OCIE1A); // ä½¿èƒ½æ¯”è¾ƒåŒ¹é…Aä¸­æ–­
 }
 
 void init_io() {
-	// ÉèÖÃÊıÂë¹Ü¶ÎÑ¡¶Ë¿ÚÎªÊä³ö
-	SEG_DDR = 0xFF;
-	// ÉèÖÃÎ»Ñ¡¶Ë¿ÚÎªÊä³ö
-	DIG_DDR |= (1 << PA0) | (1 << PA1);
-	// ³õÊ¼¹Ø±ÕÊıÂë¹Ü
-	DIG_PORT |= (1 << PA0) | (1 << PA1);
+    // è®¾ç½®æ•°ç ç®¡æ®µé€‰ç«¯å£(PD0-PD7)ä¸ºè¾“å‡º
+    SEG_DDR = 0xFF;
+    // è®¾ç½®ä½é€‰ç«¯å£(PB0,PB1)ä¸ºè¾“å‡º
+    DIG_DDR |= (1 << DIGIT_TEN) | (1 << DIGIT_ONE);
+    // åˆå§‹å…³é—­æ•°ç ç®¡
+    DIG_PORT |= (1 << DIGIT_TEN) | (1 << DIGIT_ONE);
+    // åˆå§‹æ˜¾ç¤º00
+    SEG_PORT = seg_table[0];
+}
+
+void init_timer0() {
+    // å®šæ—¶å™¨0 - ç”¨äºç®€å•çš„å»¶æ—¶ï¼Œ8ä½å®šæ—¶å™¨
+    TCCR0A = (1 << WGM01); // CTCæ¨¡å¼
+    TCCR0B = (1 << CS01) | (1 << CS00); // åˆ†é¢‘ç³»æ•°64
+    OCR0A = 250; // çº¦1msä¸­æ–­
 }
 
 int main(void) {
-	init_io();
-	init_timer0();
-	init_timer1();
-	
-	sei(); // ¿ªÆôÈ«¾ÖÖĞ¶Ï
-	
-	while(1) {
-		// Ö÷Ñ­»·¿ÉÒÔÌí¼ÓÆäËû¹¦ÄÜ
-		// ÀıÈç°´¼ü¼ì²âÀ´ÖØÖÃµ¹¼ÆÊ±µÈ
-	}
-	
-	return 0;
+    // åˆå§‹åŒ–
+    init_io();
+    init_timer1();
+    
+    sei(); // å¼€å¯å…¨å±€ä¸­æ–­
+    
+    // åˆå§‹æ˜¾ç¤º
+    display_digit(0, seconds / 10);
+    _delay_ms(2);
+    display_digit(1, seconds % 10);
+    _delay_ms(2);
+    
+    while(1) {
+        // ä¸»å¾ªç¯å¯ä»¥æ·»åŠ å…¶ä»–åŠŸèƒ½
+        // ä¾‹å¦‚ï¼šæŒ‰é”®æ£€æµ‹ã€é‡ç½®å€’è®¡æ—¶ç­‰
+        
+        // ç®€å•çš„å»¶æ—¶ï¼Œé¿å…ä¸»å¾ªç¯ç©ºè½¬
+        _delay_ms(100);
+    }
+    
+    return 0;
 }
